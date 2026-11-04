@@ -1,0 +1,25 @@
+[project]
+name = "grigotel-ai-assistant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Nima Dadkhah", email = "nima.lewagon.de@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.5.6",
+    "gitsource>=0.0.5",
+    "markitdown[pdf]>=0.1.9",
+    "minsearch>=0.2.0",
+    "openai>=3.45.0",
+    "pydantic-ai>=2.54.0",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+grigotel-ai-assistant = "grigotel_ai_assistant:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
