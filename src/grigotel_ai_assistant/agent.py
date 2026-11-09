@@ -34,6 +34,7 @@ import json
 from collections.abc import Iterator
 from typing import Literal
 
+import logfire
 from dotenv import load_dotenv
 from jiter import from_json
 from openai import OpenAI
@@ -47,6 +48,7 @@ except ImportError:  # works when run as a script from this folder
 load_dotenv()
 
 MODEL = "gpt-4o-mini"
+AGENT_NAME = "GrigoTel AI Assistant"
 MAX_TOOL_ROUNDS = 8  # safety limit on LLM <-> tool round trips per customer message
 
 AnswerType = Literal[
@@ -238,8 +240,24 @@ class GrigoTelAgent:
         history_length, offers_before = len(self.messages), dict(self.offers)
         self.messages.append({"role": "user", "content": user_message})
 
+        # Root span for this turn (OTel GenAI agent convention -> Logfire Agents page).
+        # The OpenAI calls and tool runs below become its children.
+        with logfire.span(
+            "invoke_agent {gen_ai.agent.name}",
+            **{
+                "gen_ai.operation.name": "invoke_agent",
+                "gen_ai.agent.name": AGENT_NAME,
+                "gen_ai.request.model": self.model,
+                "gen_ai.system": "openai",
+            },
+            user_turn=self.user_turn,
+        ) as span:
+            yield from self._chat_turn(span, history_length, offers_before)
+
+    def _chat_turn(self, span, history_length: int, offers_before: dict) -> Iterator[dict]:
         try:
-            for _ in range(MAX_TOOL_ROUNDS):
+            for round_number in range(1, MAX_TOOL_ROUNDS + 1):
+                span.set_attribute("tool_rounds", round_number - 1)
                 response = yield from self._stream_round()
 
                 calls = [item for item in response.output if item.type == "function_call"]
@@ -247,12 +265,26 @@ class GrigoTelAgent:
                     parsed = response.output_parsed or _fallback_response(
                         response.output_text or "Sorry, I couldn't answer that. Could you rephrase it?"
                     )
+                    span.set_attributes({
+                        "answer_type": parsed.answer_type,
+                        "confidence": parsed.confidence,
+                        "found_in_sources": parsed.found_in_sources,
+                        "order_placed": self.last_order is not None,
+                    })
                     yield {"type": "final", "response": parsed, "order": self.last_order}
                     return
 
                 for call in calls:
                     yield {"type": "tool_call", "name": call.name, "arguments": _parse_args(call.arguments)}
-                    result = self._run_tool(call.name, call.arguments)
+                    with logfire.span(
+                        "execute_tool {gen_ai.tool.name}",
+                        **{"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": call.name},
+                        arguments=_parse_args(call.arguments),
+                    ) as tool_span:
+                        result = self._run_tool(call.name, call.arguments)
+                        tool_span.set_attribute("status", result.get("status"))
+                        if "error" in result:
+                            tool_span.set_level("warn")
                     self.messages.append({
                         "type": "function_call_output",
                         "call_id": call.call_id,
@@ -260,6 +292,7 @@ class GrigoTelAgent:
                     })
                     yield {"type": "tool_result", "name": call.name, "result": result}
 
+            logfire.warn("Agent hit MAX_TOOL_ROUNDS ({max_rounds})", max_rounds=MAX_TOOL_ROUNDS)
             yield {
                 "type": "final",
                 "response": _fallback_response("Sorry, I couldn't complete that request. Could you rephrase it?"),

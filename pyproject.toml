@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "duckdb>=1.5.6",
     "gitsource>=0.0.5",
+    "logfire>=5.4.0",
     "markitdown[pdf]>=0.1.9",
     "minsearch>=0.2.0",
     "openai>=3.45.0",

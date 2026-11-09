@@ -16,9 +16,11 @@ st.set_page_config(page_title="GrigoTel AI Assistant", page_icon="📱")
 
 try:  # works when the package is installed (uv init --package)
     from grigotel_ai_assistant.agent import GrigoTelAgent
+    from grigotel_ai_assistant.observability import setup_logfire
     from grigotel_ai_assistant.tools import create_tools
 except ImportError:  # works when run from this folder
     from agent import GrigoTelAgent
+    from observability import setup_logfire
     from tools import create_tools
 
 CURSOR = "▌"
@@ -52,6 +54,16 @@ ANSWER_TYPE_LABELS = {
 if not os.getenv("OPENAI_API_KEY"):  # agent.py has already loaded .env
     st.error("OPENAI_API_KEY is not set. Add it to the project's `.env` file and restart the app.")
     st.stop()
+
+
+@st.cache_resource
+def init_observability() -> bool:
+    """Logfire tracing: configured once per process, not on every Streamlit rerun."""
+    setup_logfire()
+    return True
+
+
+init_observability()
 
 
 @st.cache_resource(show_spinner="Loading GrigoTel knowledge base...")

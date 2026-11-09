@@ -1173,6 +1173,7 @@ dependencies = [
     { name = "duckdb", version = "1.5.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "duckdb", version = "2.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "gitsource" },
+    { name = "logfire" },
     { name = "markitdown", extra = ["pdf"] },
     { name = "minsearch" },
     { name = "openai" },
@@ -1193,6 +1194,7 @@ dev = [
 requires-dist = [
     { name = "duckdb", specifier = ">=1.5.6" },
     { name = "gitsource", specifier = ">=0.0.5" },
+    { name = "logfire", specifier = ">=5.4.0" },
     { name = "markitdown", extras = ["pdf"], specifier = ">=0.1.9" },
     { name = "minsearch", specifier = ">=0.2.0" },
     { name = "openai", specifier = ">=3.45.0" },
