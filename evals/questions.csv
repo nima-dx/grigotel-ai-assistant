@@ -1,0 +1,21 @@
+question,group,type
+What processor does the Alexy G26 Pro use?,product_specs,direct
+Does the G26 Lite have a fingerprint reader?,product_specs,wrong_terminology
+Which of your phones has the biggest battery and the fastest charging?,product_specs,multi_source
+Can I take the G26 Lite swimming?,product_specs,conflicting_sources
+Does the G26 support wireless charging?,product_specs,not_in_docs
+Do you have the G26 Fold in green?,pricing_availability,direct
+And how much does it cost?,pricing_availability,follow_up
+Do you sell the G26 Pro in red?,pricing_availability,not_in_docs
+Quel est le prix du G26 Pro noir ?,pricing_availability,other_language
+I want to buy 2 Alexy G26 Fold phones,order,vague
+I'd like to order 5 green G26 Fold,order,stock_limit
+How do I set up my new G26 for the first time?,how_to,direct
+How do I change the battery on my G26 Pro?,how_to,multi_source
+"My phone gets really hot, what should I do?",troubleshooting,vague
+The fingerprint unlock keeps failing on my G26,troubleshooting,wrong_terminology
+Tell me about GrigoTel,company,broad
+Are you planning to release a tablet?,company,direct
+Does my fingerprint data get uploaded to the cloud?,privacy,wrong_terminology
+Is my data safe with you?,privacy,vague
+What's the best laptop to buy for programming?,other,off_topic

@@ -32,8 +32,10 @@ Requires OPENAI_API_KEY in the project's .env file.
 import inspect
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Literal
 
+import logfire
 from dotenv import load_dotenv
 from jiter import from_json
 from openai import OpenAI
@@ -45,6 +47,20 @@ except ImportError:  # works when run as a script from this folder
     from tools import GrigoTelTools
 
 load_dotenv()
+
+# Send traces to Logfire (credentials come from .logfire/ or LOGFIRE_TOKEN).
+# Done here, not in app.py: Streamlit re-runs app.py on every interaction,
+# but this module is imported only once, so OpenAI is instrumented only once.
+#   data_dir: always use <project root>/.logfire, whatever folder we're run from
+#             (e.g. notebooks/), instead of looking in the current folder.
+#   send_to_logfire='if-token-present': never stop to ask interactively for a
+#             project; without credentials, just don't send.
+logfire.configure(
+    service_name="grigotel-ai-assistant",
+    data_dir=Path(__file__).resolve().parents[2] / ".logfire",
+    send_to_logfire="if-token-present",
+)
+logfire.instrument_openai()
 
 MODEL = "gpt-4o-mini"
 MAX_TOOL_ROUNDS = 8  # safety limit on LLM <-> tool round trips per customer message
@@ -211,6 +227,7 @@ class GrigoTelAgent:
         self.user_turn = 0
         self.offers: dict[str, int] = {}  # item_id -> customer turn in which it was offered
         self.last_order: dict | None = None
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}  # tokens of the last customer message
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -235,6 +252,7 @@ class GrigoTelAgent:
         """
         self.user_turn += 1
         self.last_order = None
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
         history_length, offers_before = len(self.messages), dict(self.offers)
         self.messages.append({"role": "user", "content": user_message})
 
@@ -298,6 +316,10 @@ class GrigoTelAgent:
                         yield {"type": "answer_delta", "text": answer[sent:]}
                         sent = len(answer)
             response = stream.get_final_response()
+
+        if response.usage:  # one customer message can take several LLM calls: add them up
+            self.last_usage["input_tokens"] += response.usage.input_tokens
+            self.last_usage["output_tokens"] += response.usage.output_tokens
 
         # Store the output as plain dicts (the parsed SDK objects can't be sent back as input)
         if response.output_text:

@@ -10,6 +10,7 @@ Usage (from the project root):
 
 import os
 
+import logfire
 import streamlit as st
 
 st.set_page_config(page_title="GrigoTel AI Assistant", page_icon="📱")
@@ -62,10 +63,23 @@ def get_tools():
 
 tools = get_tools()
 
+def new_logfire_context() -> dict:
+    """Start a 'streamlit_session' parent span and return its context.
+
+    Every agent run attached to this context is grouped under the same trace
+    in Logfire, so one conversation = one trace tree (with its total cost).
+    """
+    with logfire.span("streamlit_session"):
+        return logfire.get_context()
+
+
 # One agent per browser session: it holds this customer's conversation and order state
 if "agent" not in st.session_state:
     st.session_state.agent = GrigoTelAgent(tools)
     st.session_state.messages = []
+
+if "logfire_context" not in st.session_state:
+    st.session_state.logfire_context = new_logfire_context()
 
 agent: GrigoTelAgent = st.session_state.agent
 
@@ -144,7 +158,29 @@ def render_metadata(meta: dict) -> None:
     st.caption(line)
 
 
-def render_message(msg: dict) -> None:
+def log_event(name: str, **attributes) -> None:
+    """Log a user-interaction event under this session's Logfire trace."""
+    with logfire.attach_context(st.session_state.logfire_context):
+        logfire.info(name, **attributes)
+
+
+def feedback_buttons(msg: dict, idx: int) -> None:
+    """👍 / 👎 under an answer. The chosen one is highlighted."""
+    chosen = msg.get("feedback")
+    f1, f2, _ = st.columns([1, 1, 8])
+    for column, value, icon in ((f1, 1, "👍"), (f2, -1, "👎")):
+        if column.button(
+            icon,
+            key=f"feedback_{idx}_{value}",
+            type="primary" if chosen == value else "secondary",
+        ):
+            log_event("user_feedback", feedback=value)
+            msg["feedback"] = value
+            st.session_state.pending_toast = icon  # shown after the rerun
+            st.rerun()  # redraw so the highlight shows the new choice
+
+
+def render_message(msg: dict, idx: int) -> None:
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant":
             render_activity(msg["activity"])
@@ -153,13 +189,20 @@ def render_message(msg: dict) -> None:
             render_order(msg["order"])
         if msg.get("metadata"):
             render_metadata(msg["metadata"])
+        if msg["role"] == "assistant":
+            feedback_buttons(msg, idx)
 
 
-def question_buttons(questions: list[str], key: str) -> None:
-    """A row of buttons; a click starts a new agent run with that question."""
+def question_buttons(questions: list[str], key: str, event: str | None = None) -> None:
+    """A row of buttons; a click starts a new agent run with that question.
+
+    If `event` is given, the click is logged to Logfire under that name.
+    """
     columns = st.columns(len(questions))
     for i, (column, question) in enumerate(zip(columns, questions)):
         if column.button(question, key=f"{key}_{i}", use_container_width=True):
+            if event:
+                log_event(event, question=question)
             st.session_state.pending_prompt = question
             st.rerun()
 
@@ -179,17 +222,20 @@ def run_turn(prompt: str) -> None:
         final = None
 
         try:
-            for event in agent.chat_stream(prompt):
-                if event["type"] in ("tool_call", "tool_result"):
-                    line = describe_event(event)
-                    if line:
-                        activity.append(line)
-                        status.markdown(line)
-                elif event["type"] == "answer_delta":
-                    answer += event["text"]
-                    answer_box.markdown(answer + CURSOR)
-                elif event["type"] == "final":
-                    final = event
+            # chat_stream is a generator: its code runs while we iterate, so the
+            # whole loop must be inside attach_context to land in the session trace.
+            with logfire.attach_context(st.session_state.logfire_context):
+                for event in agent.chat_stream(prompt):
+                    if event["type"] in ("tool_call", "tool_result"):
+                        line = describe_event(event)
+                        if line:
+                            activity.append(line)
+                            status.markdown(line)
+                    elif event["type"] == "answer_delta":
+                        answer += event["text"]
+                        answer_box.markdown(answer + CURSOR)
+                    elif event["type"] == "final":
+                        final = event
         except Exception as e:
             status.update(label="Error", state="error", expanded=True)
             st.error(f"Sorry, something went wrong: {type(e).__name__}. Please try again.")
@@ -222,9 +268,13 @@ with st.sidebar:
         agent.reset()
         st.session_state.messages = []
         st.session_state.pop("pending_prompt", None)
+        st.session_state.logfire_context = new_logfire_context()  # new conversation = new trace
         st.rerun()
 
 st.title("GrigoTel AI Assistant")
+
+if toast_icon := st.session_state.pop("pending_toast", None):
+    st.toast("Thanks for the feedback!", icon=toast_icon)
 
 typed = st.chat_input("Ask about GrigoTel phones...")
 prompt = typed or st.session_state.pop("pending_prompt", None)
@@ -234,12 +284,13 @@ if not messages:
     with st.chat_message("assistant"):
         st.markdown(WELCOME)
 
-for msg in messages:
-    render_message(msg)
+for idx, msg in enumerate(messages):
+    render_message(msg, idx)
 
 if prompt:
     run_turn(prompt)
 elif not messages:
     question_buttons(EXAMPLE_QUESTIONS, key="example")
 elif messages[-1]["role"] == "assistant" and messages[-1].get("follow_ups"):
-    question_buttons(messages[-1]["follow_ups"], key=f"follow_up_{len(messages)}")
+    question_buttons(messages[-1]["follow_ups"], key=f"follow_up_{len(messages)}",
+                     event="followup_question_clicked")

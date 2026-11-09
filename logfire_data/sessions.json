@@ -1,0 +1,40 @@
+[
+  {
+    "trace_id": "01a1c0dae631975ce083bb51998a09b8",
+    "start_timestamp": "2026-11-09T15:08:53.681251Z",
+    "messages": 4,
+    "input_tokens": 3273,
+    "output_tokens": 175,
+    "feedback": null,
+    "events": []
+  },
+  {
+    "trace_id": "01a1c0d9e0f21195d863ce4c097f8a26",
+    "start_timestamp": "2026-11-09T15:07:46.802228Z",
+    "messages": 8,
+    "input_tokens": 7168,
+    "output_tokens": 289,
+    "feedback": 1,
+    "events": [
+      {
+        "event": "user_feedback",
+        "timestamp": "2026-11-09T15:07:53.313559Z",
+        "feedback": 1
+      },
+      {
+        "event": "followup_question_clicked",
+        "timestamp": "2026-11-09T15:07:53.434320Z",
+        "question": "What are the prices for these colors?"
+      }
+    ]
+  },
+  {
+    "trace_id": "01a1c0d5bc075089318370e93f010011",
+    "start_timestamp": "2026-11-09T15:03:15.207105Z",
+    "messages": 8,
+    "input_tokens": 7176,
+    "output_tokens": 283,
+    "feedback": null,
+    "events": []
+  }
+]
