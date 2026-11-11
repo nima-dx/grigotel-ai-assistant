@@ -121,7 +121,8 @@ GrigoTel sells four smartphones: Alexy G26, Alexy G26 Fold, Alexy G26 Pro and Al
 ## Order process
 1. You need the model, color and quantity. Ask for anything missing.
    If the customer doesn't know the colors, use get_product_info to list them.
-2. Call check_availability and act on its status:
+2. Call check_availability once per item; as soon as it returns, answer the customer.
+   Act on its status:
    - "available": summarize model, color, quantity, unit price and total price,
      then ask the customer to confirm the order.
    - "partial": say that only `available_quantity` are in stock, offer that quantity
@@ -264,9 +265,14 @@ class GrigoTelAgent:
         history_length, offers_before = len(self.messages), dict(self.offers)
         self.messages.append({"role": "user", "content": user_message})
 
+        seen_calls: set[tuple[str, str]] = set()  # (tool name, arguments) called in this turn
+        force_answer = False  # set after a repeated call: the next round may not call tools
+
         try:
-            for _ in range(MAX_TOOL_ROUNDS):
-                response = yield from self._stream_round()
+            for round_number in range(MAX_TOOL_ROUNDS):
+                last_round = round_number == MAX_TOOL_ROUNDS - 1
+                tool_choice = "none" if force_answer or last_round else "auto"
+                response = yield from self._stream_round(tool_choice)
 
                 calls = [item for item in response.output if item.type == "function_call"]
                 if not calls:
@@ -277,20 +283,32 @@ class GrigoTelAgent:
                     return
 
                 for call in calls:
-                    yield {"type": "tool_call", "name": call.name, "arguments": _parse_args(call.arguments)}
-                    result = self._run_tool(call.name, call.arguments)
+                    key = (call.name, call.arguments)
+                    if key in seen_calls:
+                        # Don't run the same call again: the model already has the result.
+                        # Without this, gpt-4o-mini can repeat one call until MAX_TOOL_ROUNDS.
+                        result = {"error": f"You already called {call.name} with these arguments; "
+                                           "its result is above. Answer the customer now."}
+                        force_answer = True
+                    else:
+                        seen_calls.add(key)
+                        yield {"type": "tool_call", "name": call.name, "arguments": _parse_args(call.arguments)}
+                        result = self._run_tool(call.name, call.arguments)
+                        yield {"type": "tool_result", "name": call.name, "result": result}
                     self.messages.append({
                         "type": "function_call_output",
                         "call_id": call.call_id,
                         "output": json.dumps(result),
                     })
-                    yield {"type": "tool_result", "name": call.name, "result": result}
 
-            yield {
-                "type": "final",
-                "response": _fallback_response("Sorry, I couldn't complete that request. Could you rephrase it?"),
-                "order": self.last_order,
-            }
+            # Still no answer: keep the user's message and a short reply in the history, but
+            # drop this turn's tool calls, so the model doesn't copy a failed pattern next time.
+            # (Not when an order was placed: that must stay in the history.)
+            answer = "Sorry, I couldn't complete that request. Could you rephrase it?"
+            if not self.last_order:
+                del self.messages[history_length + 1:]
+            self.messages.append({"role": "assistant", "content": answer})
+            yield {"type": "final", "response": _fallback_response(answer), "order": self.last_order}
 
         except Exception:
             if self.last_order:
@@ -305,8 +323,11 @@ class GrigoTelAgent:
 
     # ── One streamed LLM call ────────────────────────────────────────────
 
-    def _stream_round(self):
-        """Stream one LLM call, yield answer_delta events, return the final response."""
+    def _stream_round(self, tool_choice: str = "auto"):
+        """Stream one LLM call, yield answer_delta events, return the final response.
+
+        tool_choice="none" makes the model write its answer instead of calling a tool.
+        """
         buffer, sent = "", 0
 
         with self.client.responses.stream(
@@ -314,6 +335,7 @@ class GrigoTelAgent:
             instructions=SYSTEM_PROMPT,
             input=self.messages,
             tools=self.definitions,
+            tool_choice=tool_choice,
             text_format=AssistantResponse,
         ) as stream:
             for event in stream:
