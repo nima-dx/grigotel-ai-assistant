@@ -221,3 +221,4 @@ __marimo__/
 
 # Downloaded Logfire traces (chat transcripts)
 data/
+logfire_data/
